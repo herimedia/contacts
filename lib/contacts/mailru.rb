@@ -1,66 +1,84 @@
-require 'csv'
+require 'contacts'
+require 'hpricot'
+require 'iconv'
 
 class Contacts
   class Mailru < Base
-    LOGIN_URL = "https://auth.mail.ru/cgi-bin/auth"
-    ADDRESS_BOOK_URL = "http://win.mail.ru/cgi-bin/abexport/addressbook.csv"
-
-    attr_accessor :cookies
-
+    URL                 = "http://mail.ru/"
+    LOGIN_URL           = "http://win.mail.ru/cgi-bin/auth"
+    ADDRESS_BOOK_URL    = "http://win.mail.ru/cgi-bin/addressbook?viewmode=l"
+    PROTOCOL_ERROR      = "Mail.ru has changed its protocols, please upgrade this library first."
+    
     def real_connect
-      username = login
+      postdata = "Domain=#{CGI.escape(login.split('@')[1].to_s)}&Login=#{CGI.escape(login.split('@')[0].to_s)}&Password=#{CGI.escape(password.to_s)}"
       
-      postdata =  "Login=%s&Domain=%s&Password=%s" % [
-        CGI.escape(username),
-        CGI.escape(domain_param(username)),
-        CGI.escape(password)
-      ]
-
-      data, resp, self.cookies, forward = post(LOGIN_URL, postdata, "")
-
-      if data.index("fail=1")
+      data, resp, cookies, forward = post(LOGIN_URL, postdata)
+      data = Iconv.iconv("UTF8", "CP1251", data)[0]
+      
+      if data.index("Неверное имя пользователя или пароль") || data.index("Недопустимое имя пользователя")
         raise AuthenticationError, "Username and password do not match"
-      elsif cookies == "" or data == ""
+      elsif cookies == ""
         raise ConnectionError, PROTOCOL_ERROR
       end
-
-      data, resp, cookies, forward = get(login_token_link(data), login_cookies.join(';'))
+      
+      data, resp, cookies, forward = get(forward, cookies, LOGIN_URL)
+      data, resp, cookies, forward = get(forward, cookies, LOGIN_URL)
+      
+      if resp.code_type != Net::HTTPOK
+        raise ConnectionError, PROTOCOL_ERROR
+      end
+      
+      @cookies = cookies
     end
-
-    def contacts
-      postdata = "confirm=1&abtype=6"
-      data, resp, cookies, forward = post(ADDRESS_BOOK_URL, postdata, login_cookies.join(';'))
-
+    
+    def contacts       
+      return @contacts if @contacts
       @contacts = []
-      CSV.parse(data) do |row|
-        @contacts << [row[0], row[4]] unless header_row?(row)
+      if connected?
+        page = 0
+        url = URI.parse(address_book_url)
+        begin
+          page += 1
+          http = open_http(url)
+          resp, data = http.get("#{url.path}?#{url.query}&page=#{page}",
+            "Cookie" => @cookies
+          )
+          if resp.code_type != Net::HTTPOK
+            raise ConnectionError, self.class.const_get(:PROTOCOL_ERROR)
+          end
+          data = Iconv.iconv("UTF8", "CP1251", data)[0]
+          doc = Hpricot(data)
+          tables = data.gsub(/\n/, "").gsub(/\r/, "").gsub(/<script(.*?)<\/script>/, "").scan(/<table.*?<\/table>/m)
+          table_id = 1
+          tables.each_index do |i|
+            table_id = i if tables[i].include?('adr_book')
+          end
+          Hpricot(tables[table_id]).search("tr").each do |tr|
+            unless tr["id"].nil?
+              @contacts << [tr.at("td.nik a").inner_text, tr.at("td.mail a").inner_text]
+            end
+          end
+        end while data.include?("<a href=\"?page=#{page+1}\">Далее<b>&nbsp;&#8250;</b></a>")
+        @contacts
+      end
+    end
+    
+  private
+    def uncompress(resp, data)
+      case resp.response['content-encoding']
+      when 'gzip':
+        gz = Zlib::GzipReader.new(StringIO.new(data))
+        data = gz.read
+        # gz.close
+        resp.response['content-encoding'] = nil
+      when 'deflate':
+        data = Zlib::Inflate.inflate(data)
+        resp.response['content-encoding'] = nil
       end
 
-      @contacts
+      data
     end
-
-    def skip_gzip?
-      true
-    end
-
-    private
-    def login_token_link(data)
-      data.match(/url=(.+)\">/)[1]
-    end
-
-    def login_cookies
-      self.cookies.split(';').collect{|c| c if (c.include?('t=') or c.include?('Mpop='))}.compact.collect{|c| c.strip}
-    end
-
-    def header_row?(row)
-      row[0] == 'AB-Name'
-    end
-
-    def domain_param(login)
-      login.include?('@') ?
-        login.match(/.+@(.+)/)[1] :
-        'mail.ru'
-    end
+  
 
   end
 
