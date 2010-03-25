@@ -70,6 +70,11 @@ class Contacts
       false
     end
     
+    def send_message(user)
+      # by default this sends email
+      # separate services can use direct messaging if available
+    end
+    
   private
   
     def domain
