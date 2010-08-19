@@ -83,7 +83,13 @@ class Contacts
             parse more_data
           end
         end
+        
+        _tmp_contacts = []
+        @contacts.each do |e|
+          _tmp_contacts << {:name => e[0], :id => e[1]}
+        end
 
+        @contacts = _tmp_contacts
         @contacts
       end
     end
