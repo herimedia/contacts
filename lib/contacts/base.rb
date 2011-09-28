@@ -8,17 +8,9 @@ require "thread"
 require "erb"
 require "mail"
 
-module Mail
-  class SubjectField
-    def fold *args
-      @folded_line << encode(@unfolded_line)
-    end
-  end
-end
-
 class Contacts
   TYPES = {}
-  VERSION = "1.2.4"
+  VERSION = "1.2.5"
   
   class Base
     def initialize(login, password, options={})
