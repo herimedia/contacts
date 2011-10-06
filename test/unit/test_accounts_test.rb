@@ -1,3 +1,5 @@
+# encoding: utf-8
+
 dir = File.dirname(__FILE__)
 require "#{dir}/../test_helper"
 
