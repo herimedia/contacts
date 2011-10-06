@@ -73,12 +73,12 @@ class Contacts
   private
     def uncompress(resp, data)
       case resp.response['content-encoding']
-      when 'gzip':
+      when 'gzip'
         gz = Zlib::GzipReader.new(StringIO.new(data))
         data = gz.read
         # gz.close
         resp.response['content-encoding'] = nil
-      when 'deflate':
+      when 'deflate'
         data = Zlib::Inflate.inflate(data)
         resp.response['content-encoding'] = nil
       end
